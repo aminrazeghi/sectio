@@ -1,3 +1,4 @@
+#include <QCoreApplication>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -51,6 +52,14 @@ int main(int argc, char** argv)
         vtkItem->setSceneModel(&sceneModel);
         sceneController.setVtkItem(vtkItem);
     }
+
+    // Supports opening a file from the desktop (double-click / "Open
+    // With", via the .desktop file's "Exec=Sectio %f") or a plain
+    // command-line argument. importFile() already strips a file:// prefix
+    // if the file manager passes a URI instead of a bare path.
+    const QStringList args = QCoreApplication::arguments();
+    if (args.size() > 1)
+        sceneController.importFile(args.at(1));
 
     return app.exec();
 }

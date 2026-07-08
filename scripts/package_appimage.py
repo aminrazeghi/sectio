@@ -35,10 +35,34 @@ DESKTOP_ENTRY = f"""[Desktop Entry]
 Type=Application
 Name={APP_NAME}
 Comment=STL/STEP viewer built on Qt Quick and VTK, with a live section-view
-Exec={APP_NAME}
+Exec={APP_NAME} %f
 Icon={APP_ID}
 Categories=Graphics;Engineering;3DGraphics;
+Keywords=CAD;3D;STL;STEP;STP;Mesh;Model;Viewer;OpenCASCADE;VTK;Engineering;
+MimeType=model/stl;application/sla;model/step;application/vnd.step;
 Terminal=false
+"""
+
+# model/stl is already in most distros' base shared-mime-info database, but
+# model/step generally is NOT (verified on this machine: it only resolved
+# via `xdg-mime query` because of an unrelated third-party app's Flatpak
+# export, /var/lib/flatpak/exports/share/mime/model/step.xml -- on a
+# machine without that app installed, .step/.stp files wouldn't have a
+# glob-recognized mimetype at all). Bundling both here means "Open With"
+# and double-click association work regardless of what else is installed,
+# once the AppImage is desktop-integrated (e.g. via appimaged).
+MIME_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="model/stl">
+    <comment>STL 3D model</comment>
+    <glob pattern="*.stl"/>
+  </mime-type>
+  <mime-type type="model/step">
+    <comment>STEP 3D model</comment>
+    <glob pattern="*.step"/>
+    <glob pattern="*.stp"/>
+  </mime-type>
+</mime-info>
 """
 
 
@@ -117,6 +141,13 @@ def main() -> None:
 
     (appdir / f"{APP_NAME}.desktop").write_text(DESKTOP_ENTRY)
     shutil.copy2(icon_path, appdir / f"{APP_ID}.png")
+
+    # Conventional location shared-mime-info-aware desktop integration
+    # tools (e.g. appimaged) look for and install into
+    # ~/.local/share/mime/packages/ when the AppImage is integrated.
+    mime_dir = appdir / "usr" / "share" / "mime" / "packages"
+    mime_dir.mkdir(parents=True, exist_ok=True)
+    (mime_dir / f"{APP_ID}.xml").write_text(MIME_XML)
 
     # ---- 3. Build the AppImage ----
     appimagetool = find_or_fetch_appimagetool(scripts_dir / ".cache")

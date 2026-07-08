@@ -71,3 +71,6 @@ cmake --build build -j
 python3 scripts/package_appimage.py
 dist/Sectio-x86_64.AppImage
 ```
+### TODOs
+- OpenFoam file reader (parallel and single thread runs)
+- Drag and Drop into the window
