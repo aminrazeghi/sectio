@@ -90,6 +90,47 @@ void MyVTKItem::updateSectionPlane(VTKSceneData* data, int axis, double distance
         data->sectionPlaneCollection->RemoveAllItems();
 }
 
+void MyVTKItem::setSceneOpacity(VTKSceneData* data, double opacity)
+{
+    if (!data)
+        return;
+
+    for (auto it = data->actors.begin(); it != data->actors.end(); ++it)
+        if (it->actor)
+            it->actor->GetProperty()->SetOpacity(opacity);
+}
+
+void MyVTKItem::applyBackground(vtkRenderer* renderer, bool dark)
+{
+    if (!renderer)
+        return;
+
+    // vtkRenderer::SetBackground takes normalized [0,1] components, not
+    // [0,255] -- these are chosen to roughly match the Material style's
+    // dark/light surface colors used elsewhere in the UI.
+    if (dark)
+        renderer->SetBackground(0.16, 0.16, 0.18);
+    else
+        renderer->SetBackground(0.88, 0.88, 0.90);
+}
+
+void MyVTKItem::setDarkMode(bool dark)
+{
+    m_darkMode = dark;
+    emit darkModeChanged();
+
+    // Updates the already-running renderer in place. If the render node
+    // hasn't been created yet, initializeVTK() will pick up m_darkMode
+    // (just set above) when it eventually runs, so this dispatch is purely
+    // for the live-toggle case.
+    dispatch_async([dark](vtkRenderWindow*, vtkUserData userData) {
+        auto* data = static_cast<VTKSceneData*>(userData.Get());
+        if (data)
+            MyVTKItem::applyBackground(data->renderer, dark);
+    });
+    scheduleRender();
+}
+
 QQuickVTKItem::vtkUserData MyVTKItem::initializeVTK(vtkRenderWindow* renderWindow)
 {
     // NOTE: this can run more than once over the item's lifetime -- the
@@ -102,7 +143,7 @@ QQuickVTKItem::vtkUserData MyVTKItem::initializeVTK(vtkRenderWindow* renderWindo
     data->sectionPlaneCollection = vtkSmartPointer<vtkPlaneCollection>::New();
 
     data->renderer = vtkSmartPointer<vtkRenderer>::New();
-    data->renderer->SetBackground(98, 93, 90);
+    applyBackground(data->renderer, m_darkMode);
     // Without these, the renderer doesn't clear the previous frame before
     // drawing the next one, leaving ghosting/smearing from earlier frames.
     data->renderer->SetBackgroundAlpha(1.0);

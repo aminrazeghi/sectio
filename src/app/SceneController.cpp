@@ -3,6 +3,8 @@
 
 #include <qobject.h>
 #include <vtkRenderer.h>
+#include <vtkActor.h>
+#include <vtkProperty.h>
 #include <QFileInfo>
 #include <QRandomGenerator>
 #include <QUrl>
@@ -26,9 +28,15 @@ void SceneController::addObjectInternal(const SceneObjectMeta& meta)
     if (!m_vtkItem)
         return;
 
-    m_vtkItem->dispatch_async([meta](vtkRenderWindow*, QQuickVTKItem::vtkUserData userData) {
+    m_vtkItem->dispatch_async([meta, opacity = m_opacity](vtkRenderWindow*, QQuickVTKItem::vtkUserData userData) {
         auto* data = static_cast<VTKSceneData*>(userData.Get());
         MyVTKItem::addActorForMeta(data, meta);
+        // Newly added actors default to fully opaque -- match whatever the
+        // opacity slider is currently set to, so imports stay consistent
+        // with objects already in the scene.
+        auto it = data->actors.find(meta.id);
+        if (it != data->actors.end() && it->actor)
+            it->actor->GetProperty()->SetOpacity(opacity);
         // The camera was only framed once, at startup, against an empty
         // scene. Without this, newly added actors can end up outside the
         // current view frustum and simply never appear.
@@ -188,6 +196,20 @@ void SceneController::setSectionRotation(double rotationDeg)
 {
     m_sectionRotationDeg = rotationDeg;
     pushSectionPlane();
+}
+
+void SceneController::setOpacity(double opacity)
+{
+    m_opacity = opacity;
+
+    if (!m_vtkItem)
+        return;
+
+    m_vtkItem->dispatch_async([opacity](vtkRenderWindow*, QQuickVTKItem::vtkUserData userData) {
+        auto* data = static_cast<VTKSceneData*>(userData.Get());
+        MyVTKItem::setSceneOpacity(data, opacity);
+    });
+    m_vtkItem->scheduleRender();
 }
 
 void SceneController::onObjectPicked(const QUuid& id)

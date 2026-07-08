@@ -1,7 +1,9 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
+import QtQuick.Controls.Material 2.15
 import QtQuick.Layouts 1.15
 import QtQuick.Dialogs
+import QtCore
 import SceneApp 1.0
 
 ApplicationWindow {
@@ -9,7 +11,18 @@ ApplicationWindow {
     visible: true
     width: 1100
     height: 700
-    title: "STP Viewer"
+    title: "Sectio"
+
+    // Persisted across runs (see Qt.labs.settings docs) -- this is the one
+    // source of truth for the theme; every themed color below derives from
+    // Material.theme rather than being hand-picked per control.
+    Settings {
+        id: appSettings
+        category: "ui"
+        property bool darkMode: true
+    }
+
+    Material.theme: appSettings.darkMode ? Material.Dark : Material.Light
 
     RowLayout {
         anchors.fill: parent
@@ -31,6 +44,25 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.margins: 6
                 Button { text: "Import…"; onClicked: importFileDialog.open() }
+                Item { Layout.fillWidth: true }
+                ToolButton {
+                    text: "⚙"
+                    onClicked: settingsDialog.open()
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.margins: 6
+                spacing: 4
+
+                Label { text: "Opacity: " + Math.round(opacitySlider.value * 100) + "%" }
+                Slider {
+                    id: opacitySlider
+                    Layout.fillWidth: true
+                    from: 0.05; to: 1.0; value: 1.0
+                    onMoved: sceneController.setOpacity(value)
+                }
             }
 
             ListView {
@@ -40,20 +72,13 @@ ApplicationWindow {
                 clip: true
                 model: sceneModel
 
-                delegate: Rectangle {
+                delegate: ItemDelegate {
                     width: listView.width
                     height: 40
-                    color: model.selected ? "#3a6fb0" : (index % 2 === 0 ? "#2b2b2b" : "#242424")
+                    highlighted: model.selected
+                    onClicked: sceneController.selectObject(model.id)
 
-                    // Click-to-select. Declared first (and thus below the
-                    // row's interactive controls in stacking order) so the
-                    // checkbox/delete button still receive their own clicks.
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: sceneController.selectObject(model.id)
-                    }
-
-                    RowLayout {
+                    contentItem: RowLayout {
                         anchors.fill: parent
                         anchors.margins: 6
 
@@ -63,12 +88,11 @@ ApplicationWindow {
                         }
                         Label {
                             text: model.name
-                            color: "white"
                             Layout.fillWidth: true
                             elide: Text.ElideRight
                         }
                         Button {
-                            text: "\u2715"
+                            text: "✕"
                             implicitWidth: 28
                             onClicked: sceneController.deleteObject(model.id)
                         }
@@ -96,7 +120,7 @@ ApplicationWindow {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        Label { text: "Axis:"; color: "white" }
+                        Label { text: "Axis:" }
                         ButtonGroup { id: axisGroup }
                         RadioButton {
                             text: "X"; checked: true
@@ -115,7 +139,7 @@ ApplicationWindow {
                         }
                     }
 
-                    Label { text: "Distance: " + distanceSlider.value.toFixed(1); color: "white" }
+                    Label { text: "Distance: " + distanceSlider.value.toFixed(1) }
                     Slider {
                         id: distanceSlider
                         Layout.fillWidth: true
@@ -123,7 +147,7 @@ ApplicationWindow {
                         onMoved: sceneController.setSectionDistance(value)
                     }
 
-                    Label { text: "Rotation: " + rotationSlider.value.toFixed(0) + "°"; color: "white" }
+                    Label { text: "Rotation: " + rotationSlider.value.toFixed(0) + "°" }
                     Slider {
                         id: rotationSlider
                         Layout.fillWidth: true
@@ -140,6 +164,7 @@ ApplicationWindow {
             objectName: "vtkViewport" // looked up via findChild<MyVTKItem*> in main.cpp
             Layout.fillWidth: true
             Layout.fillHeight: true
+            darkMode: appSettings.darkMode
         }
     }
 
@@ -150,6 +175,22 @@ ApplicationWindow {
         onAccepted: {
             var path = selectedFile.toString();
             sceneController.importFile(path)
+        }
+    }
+
+    Dialog {
+        id: settingsDialog
+        title: qsTr("Settings")
+        anchors.centerIn: parent
+        modal: true
+        standardButtons: Dialog.Close
+
+        ColumnLayout {
+            Switch {
+                text: qsTr("Dark mode")
+                checked: appSettings.darkMode
+                onToggled: appSettings.darkMode = checked
+            }
         }
     }
 }

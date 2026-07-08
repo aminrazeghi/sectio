@@ -35,6 +35,10 @@ public:
     Q_INVOKABLE void setSectionDistance(double distance);
     Q_INVOKABLE void setSectionRotation(double rotationDeg);
 
+    // Applies to every actor in the scene (0.0-1.0). Newly imported/created
+    // objects also pick up the current value -- see addObjectInternal().
+    Q_INVOKABLE void setOpacity(double opacity);
+
 private slots:
     void onObjectPicked(const QUuid& id);
 
@@ -49,4 +53,5 @@ private:
     int m_sectionAxis = 0;
     double m_sectionDistance = 0.0;
     double m_sectionRotationDeg = 0.0;
+    double m_opacity = 1.0;
 };

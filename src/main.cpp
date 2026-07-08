@@ -1,6 +1,7 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickStyle>
 #include <QUrl>
 
 #include "MyVTKItem.h"
@@ -16,6 +17,16 @@ int main(int argc, char** argv)
     QQuickVTKItem::setGraphicsApi();
 
     QGuiApplication app(argc, argv);
+
+    // Organization/application name give QtCore's Settings type (used by
+    // the dark/light mode toggle in main.qml) a stable place to persist to.
+    QGuiApplication::setOrganizationName("Sectio");
+    QGuiApplication::setApplicationName("Sectio");
+
+    // The Material style is what lets main.qml switch the whole UI between
+    // dark/light via a single Material.theme binding, instead of hardcoding
+    // colors per-control. Must be set before the QML engine loads any QML.
+    QQuickStyle::setStyle("Material");
 
     registerBuiltinFactories();
 

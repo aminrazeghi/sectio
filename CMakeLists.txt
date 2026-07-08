@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(StpViewer LANGUAGES CXX)
+project(Sectio LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -27,7 +27,7 @@ find_package(VTK REQUIRED COMPONENTS
 
 find_package(OpenCASCADE REQUIRED)
 
-qt_add_executable(StpViewer
+qt_add_executable(Sectio
     src/main.cpp
     src/scene/SceneModel.h
     src/scene/SceneModel.cpp
@@ -46,7 +46,7 @@ qt_add_executable(StpViewer
 
 # Flat include dirs so intra-project headers can use plain #include "Foo.h"
 # regardless of which subfolder Foo.h/.cpp lives in.
-target_include_directories(StpViewer PRIVATE
+target_include_directories(Sectio PRIVATE
     src
     src/scene
     src/vtk
@@ -54,12 +54,12 @@ target_include_directories(StpViewer PRIVATE
     ${OpenCASCADE_INCLUDE_DIR}
 )
 
-qt_add_resources(StpViewer "qml"
+qt_add_resources(Sectio "qml"
     PREFIX "/"
     FILES qml/main.qml
 )
 
-target_link_libraries(StpViewer PRIVATE
+target_link_libraries(Sectio PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Qml
@@ -75,6 +75,6 @@ target_link_libraries(StpViewer PRIVATE
 # VTK's factory-based object creation (e.g. OpenGL render window/mapper
 # implementations) needs to be wired up per-executable.
 vtk_module_autoinit(
-    TARGETS StpViewer
+    TARGETS Sectio
     MODULES ${VTK_LIBRARIES}
 )
