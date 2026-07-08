@@ -149,6 +149,47 @@ void SceneController::setVisible(const QString& idString, bool visible)
     m_vtkItem->scheduleRender();
 }
 
+void SceneController::pushSectionPlane()
+{
+    if (!m_vtkItem)
+        return;
+
+    const int axis = m_sectionAxis;
+    const double distance = m_sectionDistance;
+    const double rotationDeg = m_sectionRotationDeg;
+    const bool enabled = m_sectionEnabled;
+
+    m_vtkItem->dispatch_async([axis, distance, rotationDeg, enabled](vtkRenderWindow*, QQuickVTKItem::vtkUserData userData) {
+        auto* data = static_cast<VTKSceneData*>(userData.Get());
+        MyVTKItem::updateSectionPlane(data, axis, distance, rotationDeg, enabled);
+    });
+    m_vtkItem->scheduleRender();
+}
+
+void SceneController::setSectionEnabled(bool enabled)
+{
+    m_sectionEnabled = enabled;
+    pushSectionPlane();
+}
+
+void SceneController::setSectionAxis(int axis)
+{
+    m_sectionAxis = axis;
+    pushSectionPlane();
+}
+
+void SceneController::setSectionDistance(double distance)
+{
+    m_sectionDistance = distance;
+    pushSectionPlane();
+}
+
+void SceneController::setSectionRotation(double rotationDeg)
+{
+    m_sectionRotationDeg = rotationDeg;
+    pushSectionPlane();
+}
+
 void SceneController::onObjectPicked(const QUuid& id)
 {
     // A null id means the click missed every actor -- clear selection.

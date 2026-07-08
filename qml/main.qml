@@ -30,9 +30,6 @@ ApplicationWindow {
             RowLayout {
                 Layout.fillWidth: true
                 Layout.margins: 6
-                Button { text: "+ Sphere"; onClicked: sceneController.createPrimitive("sphere") }
-                Button { text: "+ Cube"; onClicked: sceneController.createPrimitive("cube") }
-                // Button { text: "+ Cone"; onClicked: sceneController.createPrimitive("cone") }
                 Button { text: "Import…"; onClicked: importFileDialog.open() }
             }
 
@@ -75,6 +72,63 @@ ApplicationWindow {
                             implicitWidth: 28
                             onClicked: sceneController.deleteObject(model.id)
                         }
+                    }
+                }
+            }
+
+            // ---------------- Section view controls ----------------
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.margins: 6
+                spacing: 4
+
+                CheckBox {
+                    id: sectionEnabledCheck
+                    text: "Section View"
+                    onToggled: sceneController.setSectionEnabled(checked)
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    enabled: sectionEnabledCheck.checked
+                    opacity: enabled ? 1.0 : 0.5
+                    spacing: 4
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label { text: "Axis:"; color: "white" }
+                        ButtonGroup { id: axisGroup }
+                        RadioButton {
+                            text: "X"; checked: true
+                            ButtonGroup.group: axisGroup
+                            onToggled: if (checked) sceneController.setSectionAxis(0)
+                        }
+                        RadioButton {
+                            text: "Y"
+                            ButtonGroup.group: axisGroup
+                            onToggled: if (checked) sceneController.setSectionAxis(1)
+                        }
+                        RadioButton {
+                            text: "Z"
+                            ButtonGroup.group: axisGroup
+                            onToggled: if (checked) sceneController.setSectionAxis(2)
+                        }
+                    }
+
+                    Label { text: "Distance: " + distanceSlider.value.toFixed(1); color: "white" }
+                    Slider {
+                        id: distanceSlider
+                        Layout.fillWidth: true
+                        from: -200; to: 200; value: 0
+                        onMoved: sceneController.setSectionDistance(value)
+                    }
+
+                    Label { text: "Rotation: " + rotationSlider.value.toFixed(0) + "°"; color: "white" }
+                    Slider {
+                        id: rotationSlider
+                        Layout.fillWidth: true
+                        from: -180; to: 180; value: 0
+                        onMoved: sceneController.setSectionRotation(value)
                     }
                 }
             }

@@ -28,12 +28,25 @@ public:
     Q_INVOKABLE void selectObject(const QString& idString);
     Q_INVOKABLE void setVisible(const QString& idString, bool visible);
 
+    // Section view: a single shared cutting plane applied to every actor
+    // in the scene. axis: 0=X, 1=Y, 2=Z.
+    Q_INVOKABLE void setSectionEnabled(bool enabled);
+    Q_INVOKABLE void setSectionAxis(int axis);
+    Q_INVOKABLE void setSectionDistance(double distance);
+    Q_INVOKABLE void setSectionRotation(double rotationDeg);
+
 private slots:
     void onObjectPicked(const QUuid& id);
 
 private:
     void addObjectInternal(const SceneObjectMeta& meta);
+    void pushSectionPlane(); // re-sends the full section state after any single field changes
 
     SceneModel* m_model;
     MyVTKItem* m_vtkItem = nullptr;
+
+    bool m_sectionEnabled = false;
+    int m_sectionAxis = 0;
+    double m_sectionDistance = 0.0;
+    double m_sectionRotationDeg = 0.0;
 };

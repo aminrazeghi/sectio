@@ -4,6 +4,9 @@
 #include <vtkSmartPointer.h>
 #include <vtkActor.h>
 #include <vtkRenderer.h>
+#include <vtkClipClosedSurface.h>
+#include <vtkPlane.h>
+#include <vtkPlaneCollection.h>
 #include <QUuid>
 #include <QHash>
 
@@ -12,6 +15,10 @@ struct ActorEntry
 {
     vtkSmartPointer<vtkActor> actor;
     vtkSmartPointer<vtkActor> outlineActor;
+    // Always in the pipeline between the source and the mapper (see
+    // MyVTKItem::addActorForMeta). Clips/caps against sectionPlaneCollection;
+    // with zero planes in that collection it passes data through unchanged.
+    vtkSmartPointer<vtkClipClosedSurface> clipFilter;
 };
 
 // This is the vtkUserData returned by MyVTKItem::initializeVTK().
@@ -31,6 +38,14 @@ public:
 
     vtkSmartPointer<vtkRenderer> renderer;
     QHash<QUuid, ActorEntry> actors;
+
+    // Section view: one shared plane, one shared collection. Every actor's
+    // clipFilter points at the same sectionPlaneCollection instance, so
+    // mutating the plane (or adding/removing it from the collection) here
+    // updates every actor's cross-section simultaneously -- no per-actor
+    // loop needed. Empty collection == section view disabled.
+    vtkSmartPointer<vtkPlane> sectionPlane;
+    vtkSmartPointer<vtkPlaneCollection> sectionPlaneCollection;
 
     QUuid idForActor(vtkActor* actor) const
     {

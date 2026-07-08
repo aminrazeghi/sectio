@@ -37,6 +37,16 @@ public:
     // the render thread.
     static void addActorForMeta(VTKSceneData* data, const SceneObjectMeta& meta);
 
+    // Recomputes data->sectionPlane's origin/normal from (axis, distance,
+    // rotationDeg) and adds/removes it from data->sectionPlaneCollection per
+    // `enabled`. Because every actor's clipFilter shares that one collection,
+    // this single call updates every cross-section in the scene at once.
+    // axis: 0=X, 1=Y, 2=Z. rotationDeg tilts the plane's normal around the
+    // next axis in cyclic order (X->around Z, Y->around X, Z->around Y).
+    // distance offsets the plane along its own (rotated) normal from the
+    // world origin. Must only be called from the render thread.
+    static void updateSectionPlane(VTKSceneData* data, int axis, double distance, double rotationDeg, bool enabled);
+
 signals:
     // Emitted on the GUI thread once a pick result has safely crossed
     // back over from the render thread. A null QUuid means "nothing hit".

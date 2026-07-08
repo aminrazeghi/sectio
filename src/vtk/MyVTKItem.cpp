@@ -13,6 +13,8 @@
 #include <QMouseEvent>
 #include <QMetaObject>
 
+#include <cmath>
+
 void MyVTKItem::addActorForMeta(VTKSceneData* data, const SceneObjectMeta& meta)
 {
     if (!data || !data->renderer)
@@ -22,8 +24,16 @@ void MyVTKItem::addActorForMeta(VTKSceneData* data, const SceneObjectMeta& meta)
     if (!source)
         return; // unknown type -- in a real app, log/report this to the user
 
+    // Always routed through the clip filter -- with an empty
+    // sectionPlaneCollection (the default) it passes geometry through
+    // unchanged, so this has no effect until section view is enabled.
+    vtkNew<vtkClipClosedSurface> clipFilter;
+    clipFilter->SetClippingPlanes(data->sectionPlaneCollection);
+    clipFilter->SetInputConnection(source->GetOutputPort());
+    clipFilter->SetScalarModeToNone();
+
     vtkNew<vtkPolyDataMapper> mapper;
-    mapper->SetInputConnection(source->GetOutputPort());
+    mapper->SetInputConnection(clipFilter->GetOutputPort());
 
     vtkNew<vtkActor> actor;
     actor->SetMapper(mapper);
@@ -46,7 +56,38 @@ void MyVTKItem::addActorForMeta(VTKSceneData* data, const SceneObjectMeta& meta)
     ActorEntry entry;
     entry.actor = actor;
     entry.outlineActor = outlineActor;
+    entry.clipFilter = clipFilter;
     data->actors.insert(meta.id, entry);
+}
+
+void MyVTKItem::updateSectionPlane(VTKSceneData* data, int axis, double distance, double rotationDeg, bool enabled)
+{
+    if (!data || !data->sectionPlane || !data->sectionPlaneCollection)
+        return;
+
+    const double rad = rotationDeg * M_PI / 180.0;
+    const double c = std::cos(rad);
+    const double s = std::sin(rad);
+
+    // Base normal is the chosen axis; rotationDeg tilts it around the next
+    // axis in cyclic order (X->Z, Y->X, Z->Y) -- an arbitrary but consistent
+    // single degree of freedom, enough to angle the cut without a full gizmo.
+    double normal[3] = { 0.0, 0.0, 0.0 };
+    switch (axis)
+    {
+        case 0: normal[0] = c;  normal[1] = s;  normal[2] = 0.0; break; // X, rotated around Z
+        case 1: normal[0] = 0.0; normal[1] = c;  normal[2] = s;  break; // Y, rotated around X
+        default: normal[0] = s; normal[1] = 0.0; normal[2] = c;  break; // Z, rotated around Y
+    }
+
+    data->sectionPlane->SetNormal(normal);
+    data->sectionPlane->SetOrigin(normal[0] * distance, normal[1] * distance, normal[2] * distance);
+
+    const bool alreadyEnabled = data->sectionPlaneCollection->GetNumberOfItems() > 0;
+    if (enabled && !alreadyEnabled)
+        data->sectionPlaneCollection->AddItem(data->sectionPlane);
+    else if (!enabled && alreadyEnabled)
+        data->sectionPlaneCollection->RemoveAllItems();
 }
 
 QQuickVTKItem::vtkUserData MyVTKItem::initializeVTK(vtkRenderWindow* renderWindow)
@@ -56,6 +97,9 @@ QQuickVTKItem::vtkUserData MyVTKItem::initializeVTK(vtkRenderWindow* renderWindo
     // node. That's exactly why we rebuild from m_sceneModel instead of
     // trying to preserve any previous VTKSceneData.
     auto data = vtkSmartPointer<VTKSceneData>::New();
+
+    data->sectionPlane = vtkSmartPointer<vtkPlane>::New();
+    data->sectionPlaneCollection = vtkSmartPointer<vtkPlaneCollection>::New();
 
     data->renderer = vtkSmartPointer<vtkRenderer>::New();
     data->renderer->SetBackground(98, 93, 90);
