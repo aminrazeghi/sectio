@@ -199,6 +199,51 @@ ApplicationWindow {
         }
     }
 
+    // ---------------- Drag-and-drop import ----------------
+    // Whole-window drop zone -- routes to the exact same
+    // sceneController.importFile() the Import button and file dialog use,
+    // so background loading / progress bar / extension filtering all just
+    // work unchanged. Each dropped file is imported independently and
+    // concurrently (matches clicking "Import..." multiple times fast);
+    // the progress bar reflects whichever import last reported progress
+    // when several are in flight at once.
+    DropArea {
+        id: dropArea
+        anchors.fill: parent
+
+        property bool acceptableDrag: false
+
+        onEntered: {
+            acceptableDrag = drag.urls.some(function (u) {
+                var s = u.toString().toLowerCase()
+                return s.endsWith(".stl") || s.endsWith(".step") || s.endsWith(".stp")
+            })
+            drag.accepted = acceptableDrag
+        }
+        onExited: acceptableDrag = false
+        onDropped: {
+            for (var i = 0; i < drop.urls.length; i++)
+                sceneController.importFile(drop.urls[i])
+            acceptableDrag = false
+        }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        visible: dropArea.acceptableDrag
+        color: Qt.rgba(0.227, 0.435, 0.690, 0.25)
+        border.color: "#3a6fb0"
+        border.width: 3
+        z: 1000
+
+        Label {
+            anchors.centerIn: parent
+            text: qsTr("Drop STL/STEP file to import")
+            font.pixelSize: 24
+            color: "white"
+        }
+    }
+
     FileDialog {
         id: importFileDialog
         title: qsTr("Import a model")
