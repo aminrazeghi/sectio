@@ -1,13 +1,20 @@
 #include "SceneController.h"
 #include "MyVTKItem.h"
+#include "SceneObjectFactory.h"
 
 #include <qobject.h>
 #include <vtkRenderer.h>
 #include <vtkActor.h>
 #include <vtkProperty.h>
+#include <vtkAlgorithm.h>
+#include <vtkCallbackCommand.h>
+#include <vtkCommand.h>
+#include <vtkPolyData.h>
+#include <vtkNew.h>
 #include <QFileInfo>
 #include <QRandomGenerator>
 #include <QUrl>
+#include <QtConcurrent/QtConcurrentRun>
 
 SceneController::SceneController(SceneModel* model, QObject* parent)
     : QObject(parent), m_model(model)
@@ -91,7 +98,104 @@ void SceneController::importFile(const QString& filePath)
     meta.name = QFileInfo(path).fileName();
     meta.params = { { "path", path } };
 
-    addObjectInternal(meta);
+    m_importing = true;
+    m_importProgress = 0.0;
+    emit importingChanged();
+    emit importProgressChanged();
+
+    // The actual file read (STL) or read+tessellate (STEP, via OpenCASCADE)
+    // is pure CPU work with no GPU/OpenGL dependency, so it's safe to run on
+    // an arbitrary Qt thread-pool thread -- unlike mutating actors/renderer,
+    // which must stay on the render thread (see dispatch_async elsewhere in
+    // this file). Running it there instead of on the GUI thread or the VTK
+    // render thread is what keeps a 100MB+ file from freezing the app.
+    //
+    // `this` is captured raw (not QPointer) because SceneController is a
+    // long-lived, effectively app-scoped object (constructed once in main())
+    // -- same assumption the rest of this codebase makes (e.g. MyVTKItem's
+    // own dispatch_async lambdas capture `this` the same way).
+    SceneController* self = this;
+    // Fire-and-forget: nothing needs to await/cancel this job, so the
+    // returned QFuture is intentionally discarded.
+    (void)QtConcurrent::run([self, meta]() {
+        auto source = SceneObjectFactoryRegistry::instance().build(meta.type, meta.params);
+        if (!source)
+        {
+            QMetaObject::invokeMethod(self, [self]() {
+                self->onImportFailed(QStringLiteral("Unknown import type"));
+            }, Qt::QueuedConnection);
+            return;
+        }
+
+        // Forwards vtkAlgorithm's built-in progress reporting (vtkSTLReader
+        // reports real read progress; OcctStepSource reports coarse,
+        // stage-based progress -- see its RequestData) back to the GUI
+        // thread as it happens, from this same background thread.
+        vtkNew<vtkCallbackCommand> progressCallback;
+        progressCallback->SetClientData(self);
+        progressCallback->SetCallback([](vtkObject* caller, unsigned long, void* clientData, void*) {
+            auto* controller = static_cast<SceneController*>(clientData);
+            const double progress = static_cast<vtkAlgorithm*>(caller)->GetProgress();
+            QMetaObject::invokeMethod(controller, [controller, progress]() {
+                controller->onImportProgress(progress);
+            }, Qt::QueuedConnection);
+        });
+        source->AddObserver(vtkCommand::ProgressEvent, progressCallback);
+
+        source->Update(); // the expensive part -- runs entirely on this background thread
+
+        // vtkSmartPointer (refcounted, copyable), not vtkNew (move-only) --
+        // this needs to be captured by value into the queued lambda below.
+        vtkSmartPointer<vtkPolyData> result = vtkSmartPointer<vtkPolyData>::New();
+        if (auto* output = vtkPolyData::SafeDownCast(source->GetOutputDataObject(0)))
+            result->DeepCopy(output);
+
+        QMetaObject::invokeMethod(self, [self, meta, result]() {
+            self->onImportFinished(meta, result);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void SceneController::onImportProgress(double progress)
+{
+    m_importProgress = progress;
+    emit importProgressChanged();
+}
+
+void SceneController::onImportFailed(const QString& reason)
+{
+    Q_UNUSED(reason); // no error UI yet -- surfacing this is a natural next step
+    m_importing = false;
+    emit importingChanged();
+}
+
+void SceneController::onImportFinished(const SceneObjectMeta& meta, vtkSmartPointer<vtkPolyData> polyData)
+{
+    m_importing = false;
+    m_importProgress = 1.0;
+    emit importingChanged();
+    emit importProgressChanged();
+
+    addObjectFromPolyData(meta, polyData);
+}
+
+void SceneController::addObjectFromPolyData(const SceneObjectMeta& meta, vtkSmartPointer<vtkPolyData> polyData)
+{
+    m_model->addObject(meta); // truth updated on the GUI thread immediately
+
+    if (!m_vtkItem)
+        return;
+
+    m_vtkItem->dispatch_async([meta, polyData, opacity = m_opacity](vtkRenderWindow*, QQuickVTKItem::vtkUserData userData) {
+        auto* data = static_cast<VTKSceneData*>(userData.Get());
+        MyVTKItem::addActorForPolyData(data, meta, polyData);
+        auto it = data->actors.find(meta.id);
+        if (it != data->actors.end() && it->actor)
+            it->actor->GetProperty()->SetOpacity(opacity);
+        if (data && data->renderer)
+            data->renderer->ResetCamera();
+    });
+    m_vtkItem->scheduleRender();
 }
 
 void SceneController::deleteObject(const QString& idString)

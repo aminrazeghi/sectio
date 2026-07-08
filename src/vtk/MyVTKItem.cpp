@@ -9,6 +9,9 @@
 #include <vtkOutlineFilter.h>
 #include <vtkPropPicker.h>
 #include <vtkNew.h>
+#include <vtkTrivialProducer.h>
+#include <vtkPolyData.h>
+#include <vtkAlgorithmOutput.h>
 
 #include <QMouseEvent>
 #include <QMetaObject>
@@ -24,12 +27,31 @@ void MyVTKItem::addActorForMeta(VTKSceneData* data, const SceneObjectMeta& meta)
     if (!source)
         return; // unknown type -- in a real app, log/report this to the user
 
+    addActorForOutput(data, meta, source->GetOutputPort());
+}
+
+void MyVTKItem::addActorForPolyData(VTKSceneData* data, const SceneObjectMeta& meta, vtkPolyData* polyData)
+{
+    if (!data || !data->renderer || !polyData)
+        return;
+
+    // Wraps the already-parsed polyData as a pipeline source, so the rest of
+    // the (clip filter -> mapper -> actor) chain doesn't need to care that
+    // no vtkAlgorithm actually produced it.
+    vtkNew<vtkTrivialProducer> producer;
+    producer->SetOutput(polyData);
+
+    addActorForOutput(data, meta, producer->GetOutputPort());
+}
+
+void MyVTKItem::addActorForOutput(VTKSceneData* data, const SceneObjectMeta& meta, vtkAlgorithmOutput* output)
+{
     // Always routed through the clip filter -- with an empty
     // sectionPlaneCollection (the default) it passes geometry through
     // unchanged, so this has no effect until section view is enabled.
     vtkNew<vtkClipClosedSurface> clipFilter;
     clipFilter->SetClippingPlanes(data->sectionPlaneCollection);
-    clipFilter->SetInputConnection(source->GetOutputPort());
+    clipFilter->SetInputConnection(output);
     clipFilter->SetScalarModeToNone();
 
     vtkNew<vtkPolyDataMapper> mapper;
@@ -43,7 +65,7 @@ void MyVTKItem::addActorForMeta(VTKSceneData* data, const SceneObjectMeta& meta)
 
     // Selection highlight: an outline actor, hidden unless selected.
     vtkNew<vtkOutlineFilter> outline;
-    outline->SetInputConnection(source->GetOutputPort());
+    outline->SetInputConnection(output);
     vtkNew<vtkPolyDataMapper> outlineMapper;
     outlineMapper->SetInputConnection(outline->GetOutputPort());
     vtkNew<vtkActor> outlineActor;

@@ -6,6 +6,9 @@
 #include "SceneModel.h"
 #include "SceneObjectMeta.h"
 
+class vtkPolyData;
+class vtkAlgorithmOutput;
+
 // The QQuickVTKItem subclass. This is the *only* class that knows about
 // the QQuickVTKItem threading contract. Everything else (SceneModel,
 // SceneController, QML) is oblivious to it.
@@ -40,9 +43,20 @@ public:
     void destroyingVTK(vtkRenderWindow* renderWindow, vtkUserData userData) override;
 
     // Shared by initializeVTK() (full rebuild) and SceneController's
-    // dispatch_async lambdas (incremental add). Must only be called from
-    // the render thread.
+    // dispatch_async lambdas (incremental add). Builds the source lazily via
+    // SceneObjectFactoryRegistry -- fine for cheap procedural primitives, but
+    // for file imports this would mean reading the file on the render
+    // thread. Must only be called from the render thread.
     static void addActorForMeta(VTKSceneData* data, const SceneObjectMeta& meta);
+
+    // Like addActorForMeta(), but starts the pipeline from an already-parsed
+    // vtkPolyData instead of building a source (which would read/parse a
+    // file). Used for STL/STEP imports, whose actual file I/O and
+    // parsing/tessellation happens on a background thread (see
+    // SceneController::importFile) precisely so it never blocks this
+    // (render) thread or the GUI thread. Must only be called from the
+    // render thread.
+    static void addActorForPolyData(VTKSceneData* data, const SceneObjectMeta& meta, vtkPolyData* polyData);
 
     // Recomputes data->sectionPlane's origin/normal from (axis, distance,
     // rotationDeg) and adds/removes it from data->sectionPlaneCollection per
@@ -75,6 +89,11 @@ protected:
     bool event(QEvent* ev) override;
 
 private:
+    // Shared tail end of addActorForMeta()/addActorForPolyData(): wires
+    // `output` through the clip filter, mapper, actor, and outline actor,
+    // and records the result in data->actors.
+    static void addActorForOutput(VTKSceneData* data, const SceneObjectMeta& meta, vtkAlgorithmOutput* output);
+
     SceneModel* m_sceneModel = nullptr;
     bool m_darkMode = true;
 };

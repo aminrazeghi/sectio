@@ -10,7 +10,7 @@ set(CMAKE_AUTORCC ON)
 # than a system prefix.
 list(APPEND CMAKE_PREFIX_PATH "$ENV{HOME}/.local")
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Concurrent)
 
 find_package(VTK REQUIRED COMPONENTS
     CommonCore
@@ -65,6 +65,7 @@ target_link_libraries(Sectio PRIVATE
     Qt6::Qml
     Qt6::Quick
     Qt6::QuickControls2
+    Qt6::Concurrent
     ${VTK_LIBRARIES}
     ${OpenCASCADE_FoundationClasses_LIBRARIES}
     ${OpenCASCADE_ModelingData_LIBRARIES}

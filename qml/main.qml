@@ -43,7 +43,11 @@ ApplicationWindow {
             RowLayout {
                 Layout.fillWidth: true
                 Layout.margins: 6
-                Button { text: "Import…"; onClicked: importFileDialog.open() }
+                Button {
+                    text: "Import…"
+                    enabled: !sceneController.importing
+                    onClicked: importFileDialog.open()
+                }
                 Item { Layout.fillWidth: true }
                 ToolButton {
                     text: "⚙"
@@ -159,12 +163,39 @@ ApplicationWindow {
         }
 
         // ---------------- Right panel: VTK viewport ----------------
-        MyVtkItem {
-            id: vtkViewport
-            objectName: "vtkViewport" // looked up via findChild<MyVTKItem*> in main.cpp
+        ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            darkMode: appSettings.darkMode
+            spacing: 0
+
+            MyVtkItem {
+                id: vtkViewport
+                objectName: "vtkViewport" // looked up via findChild<MyVTKItem*> in main.cpp
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                darkMode: appSettings.darkMode
+            }
+
+            // Reflects SceneController::importFile()'s background-thread
+            // progress (see its Q_PROPERTYs importing/importProgress) --
+            // the actual file read/parse never touches the GUI or render
+            // thread, so this bar animates smoothly instead of the app
+            // freezing while a large STL/STEP file loads.
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 6
+                visible: sceneController.importing
+                spacing: 8
+
+                ProgressBar {
+                    Layout.fillWidth: true
+                    from: 0; to: 1
+                    value: sceneController.importProgress
+                }
+                Label {
+                    text: Math.round(sceneController.importProgress * 100) + "%"
+                }
+            }
         }
     }
 

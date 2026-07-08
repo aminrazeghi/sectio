@@ -54,6 +54,12 @@ int OcctStepSource::RequestData(vtkInformation* /*request*/,
         return 0;
     }
 
+    // No fine-grained progress is available during ReadFile() itself (OCCT
+    // doesn't report incrementally for STEP parsing), so this is a coarse,
+    // stage-based progress signal rather than a byte-accurate one -- still
+    // enough for a progress bar to show the import is alive and moving.
+    this->UpdateProgress(0.05);
+
     STEPControl_Reader reader;
     const IFSelect_ReturnStatus status = reader.ReadFile(m_fileName.toLocal8Bit().constData());
     if (status != IFSelect_RetDone)
@@ -61,6 +67,8 @@ int OcctStepSource::RequestData(vtkInformation* /*request*/,
         vtkErrorMacro("Failed to read STEP file: " << m_fileName.toStdString());
         return 0;
     }
+
+    this->UpdateProgress(0.2);
 
     reader.TransferRoots();
     const TopoDS_Shape shape = reader.OneShape();
@@ -70,14 +78,27 @@ int OcctStepSource::RequestData(vtkInformation* /*request*/,
         return 0;
     }
 
+    this->UpdateProgress(0.3);
+
     // Tessellate the B-rep into triangles. This attaches a Poly_Triangulation
-    // to each face, which we then read back out below.
+    // to each face, which we then read back out below. This is typically the
+    // most expensive step for large/complex parts.
     BRepMesh_IncrementalMesh mesher(shape, LinearDeflection, Standard_False, AngularDeflection, Standard_True);
+
+    this->UpdateProgress(0.6);
+
+    // Count faces up front so the triangulation-extraction loop below can
+    // report smooth, proportional progress instead of jumping straight from
+    // 0.6 to 1.0 on large parts.
+    int faceCount = 0;
+    for (TopExp_Explorer countExp(shape, TopAbs_FACE); countExp.More(); countExp.Next())
+        ++faceCount;
 
     vtkNew<vtkPoints> points;
     vtkNew<vtkCellArray> polys;
 
-    for (TopExp_Explorer faceExp(shape, TopAbs_FACE); faceExp.More(); faceExp.Next())
+    int faceIndex = 0;
+    for (TopExp_Explorer faceExp(shape, TopAbs_FACE); faceExp.More(); faceExp.Next(), ++faceIndex)
     {
         const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
 
@@ -113,6 +134,9 @@ int OcctStepSource::RequestData(vtkInformation* /*request*/,
             };
             polys->InsertNextCell(3, ids);
         }
+
+        if (faceCount > 0)
+            this->UpdateProgress(0.6 + 0.3 * (static_cast<double>(faceIndex + 1) / faceCount));
     }
 
     vtkNew<vtkPolyData> raw;
@@ -128,6 +152,8 @@ int OcctStepSource::RequestData(vtkInformation* /*request*/,
     normalsFilter->SplittingOn();
     normalsFilter->SetFeatureAngle(60.0);
     normalsFilter->Update();
+
+    this->UpdateProgress(1.0);
 
     output->ShallowCopy(normalsFilter->GetOutput());
     return 1;
