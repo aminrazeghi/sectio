@@ -1,0 +1,186 @@
+name: Build
+
+# This project needs two things Ubuntu's own package repos don't provide:
+#   - Qt >= 6.5 (QtCore's `Settings` QML type, used for the dark/light mode
+#     toggle) -- ubuntu-24.04's apt Qt6 is 6.4.2. Installed here via
+#     aqtinstall (official prebuilt Qt binaries), not apt.
+#   - VTK built with the GUISupportQtQuick module -- Ubuntu's libvtk9-qt-dev
+#     package only ships the QtWidgets-based Qt support
+#     (vtkGUISupportQtModule.h), not vtkGUISupportQtQuickModule.h/
+#     QQuickVTKItem at all. Built from source here, module-scoped (not a
+#     full VTK build) and cached so only version bumps pay the full cost.
+# OpenCASCADE is also built from source (its own apt package is fine
+# functionally, but pinning the same way VTK is here keeps both reproducible
+# and independent of whatever Ubuntu happens to ship).
+#
+# First run on a cache miss is slow (VTK + OCCT from source: ballpark
+# 30-60 min combined depending on runner). Subsequent runs hit the
+# actions/cache entries below and are fast, as long as the pinned versions
+# don't change.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  QT_VERSION: "6.8.2"
+  VTK_REF: "v9.3.1"
+  OCCT_REF: "V7_8_1"
+
+permissions:
+  contents: write # only used by the release step, and only on tag pushes
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build patchelf file curl \
+            libgl1-mesa-dev libglu1-mesa-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev \
+            libx11-dev libx11-xcb-dev libxext-dev libxrender-dev libxi-dev \
+            libxrandr-dev libxfixes-dev libxcursor-dev libxcomposite-dev \
+            libxdamage-dev libxtst-dev \
+            libfreetype-dev libfontconfig1-dev
+
+      - name: Install aqtinstall (in a venv, not system Python)
+        run: |
+          python3 -m venv /tmp/aqt-venv
+          /tmp/aqt-venv/bin/pip install aqtinstall
+
+      - name: Cache Qt install
+        id: cache-qt
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/deps/Qt
+          key: qt-${{ env.QT_VERSION }}-linux-gcc_64-v2
+
+      - name: Fetch Qt
+        if: steps.cache-qt.outputs.cache-hit != 'true'
+        run: |
+          # Arch argument is "linux_gcc_64" (verified against aqt 3.3.0's
+          # actual `list-qt --arch` output -- "gcc_64" alone is rejected).
+          # qtbase + qtdeclarative (QtQuick/Qml/QuickControls2/...) ship
+          # together in the default install; there's no separate
+          # "qtdeclarative" addon module to request with -m (verified:
+          # aqt's --modules listing for this version doesn't include one,
+          # and QtQuick/Controls/Material/QtCore's Settings all showed up
+          # without it).
+          /tmp/aqt-venv/bin/python3 -m aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \
+            --outputdir "${{ github.workspace }}/deps/Qt"
+
+      - name: Export Qt paths
+        run: |
+          QT_PREFIX="${{ github.workspace }}/deps/Qt/${QT_VERSION}/gcc_64"
+          echo "$QT_PREFIX/bin" >> "$GITHUB_PATH"
+          echo "QT_PREFIX=$QT_PREFIX" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$QT_PREFIX/lib:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+
+      - name: Cache VTK install
+        id: cache-vtk
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/deps/vtk-install
+          key: vtk-${{ env.VTK_REF }}-qt${{ env.QT_VERSION }}-v1
+
+      - name: Build VTK
+        if: steps.cache-vtk.outputs.cache-hit != 'true'
+        run: |
+          git clone --branch "$VTK_REF" --depth 1 https://gitlab.kitware.com/vtk/vtk.git deps/vtk-src
+          # Every -DVTK_MODULE_ENABLE_VTK_<X>=YES below matches, one-to-one,
+          # CMakeLists.txt's own `find_package(VTK REQUIRED COMPONENTS ...)`
+          # list -- enabled explicitly rather than relying on VTK's
+          # dependency auto-resolution to happen to pull in the ones we
+          # actually `find_package`-require directly (e.g. FiltersSources
+          # isn't a dependency of GUISupportQtQuick itself, but our own code
+          # uses vtkSphereSource/vtkCubeSource/vtkConeSource from it).
+          cmake -S deps/vtk-src -B deps/vtk-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/deps/vtk-install" \
+            -DCMAKE_PREFIX_PATH="$QT_PREFIX" \
+            -DVTK_MODULE_ENABLE_VTK_CommonCore=YES \
+            -DVTK_MODULE_ENABLE_VTK_CommonDataModel=YES \
+            -DVTK_MODULE_ENABLE_VTK_FiltersCore=YES \
+            -DVTK_MODULE_ENABLE_VTK_FiltersSources=YES \
+            -DVTK_MODULE_ENABLE_VTK_FiltersGeneral=YES \
+            -DVTK_MODULE_ENABLE_VTK_FiltersModeling=YES \
+            -DVTK_MODULE_ENABLE_VTK_IOGeometry=YES \
+            -DVTK_MODULE_ENABLE_VTK_RenderingCore=YES \
+            -DVTK_MODULE_ENABLE_VTK_RenderingOpenGL2=YES \
+            -DVTK_MODULE_ENABLE_VTK_GUISupportQtQuick=YES \
+            -DVTK_BUILD_TESTING=OFF \
+            -DVTK_BUILD_EXAMPLES=OFF \
+            -DVTK_BUILD_DOCUMENTATION=OFF
+          cmake --build deps/vtk-build --parallel
+          cmake --install deps/vtk-build
+
+      - name: Cache OpenCASCADE install
+        id: cache-occt
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/deps/occt-install
+          key: occt-${{ env.OCCT_REF }}-v1
+
+      - name: Build OpenCASCADE
+        if: steps.cache-occt.outputs.cache-hit != 'true'
+        run: |
+          git clone --branch "$OCCT_REF" --depth 1 https://github.com/Open-Cascade-SAS/OCCT.git deps/occt-src
+          cmake -S deps/occt-src -B deps/occt-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/deps/occt-install" \
+            -DBUILD_MODULE_Draw=OFF \
+            -DBUILD_MODULE_Visualization=OFF \
+            -DBUILD_MODULE_ApplicationFramework=OFF \
+            -DUSE_TK=OFF \
+            -DUSE_FREETYPE=OFF
+          cmake --build deps/occt-build --parallel
+          cmake --install deps/occt-build
+
+      - name: Configure
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$QT_PREFIX;${{ github.workspace }}/deps/vtk-install;${{ github.workspace }}/deps/occt-install"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Package portable binary
+        run: python3 scripts/package_linux.py --build-dir build
+
+      - name: Package AppImage
+        run: python3 scripts/package_appimage.py --build-dir build
+
+      - name: Archive portable binary
+        # A raw directory can't be attached to a GitHub Release as a single
+        # downloadable asset -- tar it up. Done for every run (not just tag
+        # pushes) so the plain workflow-artifact upload below stays a real
+        # file too, not just a re-zipped directory.
+        run: tar -C dist/linux-x86 -czf dist/Sectio-linux-x86.tar.gz .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sectio-linux-x86-portable
+          path: dist/Sectio-linux-x86.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sectio-x86_64-AppImage
+          path: dist/Sectio-x86_64.AppImage
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/Sectio-linux-x86.tar.gz
+            dist/Sectio-x86_64.AppImage
