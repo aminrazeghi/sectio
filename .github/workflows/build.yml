@@ -126,18 +126,27 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/deps/occt-install
-          key: occt-${{ env.OCCT_REF }}-v1
+          key: occt-${{ env.OCCT_REF }}-v2
 
       - name: Build OpenCASCADE
         if: steps.cache-occt.outputs.cache-hit != 'true'
         run: |
           git clone --branch "$OCCT_REF" --depth 1 https://github.com/Open-Cascade-SAS/OCCT.git deps/occt-src
+          # ApplicationFramework (OCAF: TKLCAF/TKCAF/TKVCAF/...) must stay
+          # ON -- DataExchange's TKXCAF (used for STEP import) depends on
+          # it. Disabling it here previously meant TKLCAF & co. never got
+          # built at all, so package_linux.py had nothing to bundle for
+          # them and the shipped binary/AppImage failed with "not found"
+          # for exactly those libraries. Draw (Tcl/Tk test harness) and
+          # Visualization (TKV3d/TKOpenGl/...) are genuinely unused by this
+          # project -- neither shows up anywhere in our own or OCCT's
+          # DataExchange/ModelingAlgorithms link requirements.
           cmake -S deps/occt-src -B deps/occt-build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/deps/occt-install" \
             -DBUILD_MODULE_Draw=OFF \
             -DBUILD_MODULE_Visualization=OFF \
-            -DBUILD_MODULE_ApplicationFramework=OFF \
+            -DBUILD_MODULE_ApplicationFramework=ON \
             -DUSE_TK=OFF \
             -DUSE_FREETYPE=OFF
           cmake --build deps/occt-build --parallel
